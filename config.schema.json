@@ -18,6 +18,28 @@
         "default": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "description": "The operator ID of the Smart M-Air app. See https://github.com/JobDoesburg/homebridge-mhi-wfrac for more information."
       }
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "mac": {
+            "type": "string",
+            "required": true,
+            "pattern": "^[a-f0-9]{12}|default$"
+          },
+          "name": {
+            "type": "string",
+            "required": false
+          },
+          "ip": {
+            "type": "string",
+            "required": false,
+            "format": "ipv4"
+          }
+        }
+      }
     }
   }
 }
