@@ -52,12 +52,28 @@ export class WFRACAccessory {
     this.dehumidifierService = this.accessory.getService(this.platform.Service.HumidifierDehumidifier)
       || this.accessory.addService(this.platform.Service.HumidifierDehumidifier);
 
+    // Remove any existing Away Mode switch service from previous versions
+    const existingAwayModeService = this.accessory.getService(this.platform.Service.Switch);
+    if (existingAwayModeService) {
+      this.platform.log.info(`Removing legacy Away Mode switch service from ${this.deviceName}`);
+      this.accessory.removeService(existingAwayModeService);
+    }
+
+    // Also check for switch services with specific names (in case there are multiple)
+    const switchServices = this.accessory.services.filter(service =>
+      service.UUID === this.platform.Service.Switch.UUID,
+    );
+    switchServices.forEach(service => {
+      this.platform.log.info(`Removing legacy switch service from ${this.deviceName}`);
+      this.accessory.removeService(service);
+    });
+
     this.thermostatService.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
       .onGet(() => this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS);
     this.thermostatService.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
       .setProps({minValue: DeviceStatus.indoorTempList.at(0), maxValue: DeviceStatus.indoorTempList.at(-1), minStep: 0.1});
     this.thermostatService.getCharacteristic(this.platform.Characteristic.TargetTemperature)
-      .setProps({minValue: 18, maxValue: 30, minStep: 0.5});
+      .setProps({minValue: 17, maxValue: 30, minStep: 0.5});
 
     this.fanService.getCharacteristic(this.platform.Characteristic.RotationSpeed).setProps({minValue: 0, maxValue: 100, minStep: 25});
 
