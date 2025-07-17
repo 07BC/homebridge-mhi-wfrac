@@ -16,6 +16,7 @@ export class WFRACAccessory {
   private thermostatService: Service;
   private fanService: Service;
   private dehumidifierService: Service;
+  private awayModeService: Service;
   private refreshTimeout: NodeJS.Timeout | null = null;
 
   constructor(
@@ -44,6 +45,8 @@ export class WFRACAccessory {
     // TODO maybe this should be AirPurifier so we have an extra button for the fan (to switch to manual mode)
     this.dehumidifierService = this.accessory.getService(this.platform.Service.HumidifierDehumidifier)
       || this.accessory.addService(this.platform.Service.HumidifierDehumidifier);
+    this.awayModeService = this.accessory.getService(this.platform.Service.Switch)
+      || this.accessory.addService(this.platform.Service.Switch, 'Away Mode');
 
     this.thermostatService.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
       .onGet(() => this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS);
@@ -74,6 +77,8 @@ export class WFRACAccessory {
       .onSet(this.setRotationSpeed.bind(this));
     this.dehumidifierService.getCharacteristic(this.platform.Characteristic.Active)
       .onSet(this.setHumidifierActive.bind(this));
+    this.awayModeService.getCharacteristic(this.platform.Characteristic.On)
+      .onSet(this.setAwayMode.bind(this));
 
     // We do not implement the target humidifier state, since we only accept DEHUMIDIFIER as a valid value.
 
@@ -180,6 +185,9 @@ export class WFRACAccessory {
     this.dehumidifierService.updateCharacteristic(
       this.platform.Characteristic.TargetHumidifierDehumidifierState, targetHumidifierDehumidifierState,
     );
+
+    // Update away mode status
+    this.awayModeService.updateCharacteristic(this.platform.Characteristic.On, this.device.status.isVacantProperty === 1);
   }
 
   setTargetHeatingCoolingState(value: CharacteristicValue) {
@@ -322,6 +330,18 @@ export class WFRACAccessory {
         }
         break;
     }
+
+    this.refreshTimeout = setTimeout(() => this.refreshStatus(), WFRACAccessory.REFRESH_INTERVAL);
+  }
+
+  setAwayMode(value: CharacteristicValue) {
+    if (this.refreshTimeout) {
+      clearTimeout(this.refreshTimeout);
+    }
+
+    const isAwayMode = value as boolean;
+    this.platform.log.info(`Setting ${this.deviceName} away mode to ${isAwayMode ? 'ON' : 'OFF'}`);
+    this.device.setAwayMode(isAwayMode);
 
     this.refreshTimeout = setTimeout(() => this.refreshStatus(), WFRACAccessory.REFRESH_INTERVAL);
   }

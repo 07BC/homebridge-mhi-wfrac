@@ -519,6 +519,12 @@ export class DeviceClient {
     return this.status;
   }
 
+  setAwayMode(awayMode: boolean): DeviceStatus {
+    this.status.isVacantProperty = awayMode ? 1 : 0;
+    this.setDeviceStatus(this.status);
+    return this.status;
+  }
+
   async setDeviceStatus(status: DeviceStatus): Promise<DeviceStatus> {
     const contents = {
       airconId: this.deviceId,
