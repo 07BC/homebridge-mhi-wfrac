@@ -16,7 +16,6 @@ export class WFRACAccessory {
   private thermostatService: Service;
   private fanService: Service;
   private dehumidifierService: Service;
-  private awayModeService: Service;
   private refreshTimeout: NodeJS.Timeout | null = null;
 
   constructor(
@@ -52,8 +51,6 @@ export class WFRACAccessory {
     // TODO maybe this should be AirPurifier so we have an extra button for the fan (to switch to manual mode)
     this.dehumidifierService = this.accessory.getService(this.platform.Service.HumidifierDehumidifier)
       || this.accessory.addService(this.platform.Service.HumidifierDehumidifier);
-    this.awayModeService = this.accessory.getService(this.platform.Service.Switch)
-      || this.accessory.addService(this.platform.Service.Switch, 'Away Mode');
 
     this.thermostatService.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
       .onGet(() => this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS);
@@ -84,8 +81,6 @@ export class WFRACAccessory {
       .onSet(this.setRotationSpeed.bind(this));
     this.dehumidifierService.getCharacteristic(this.platform.Characteristic.Active)
       .onSet(this.setHumidifierActive.bind(this));
-    this.awayModeService.getCharacteristic(this.platform.Characteristic.On)
-      .onSet(this.setAwayMode.bind(this));
 
     // We do not implement the target humidifier state, since we only accept DEHUMIDIFIER as a valid value.
 
@@ -99,6 +94,16 @@ export class WFRACAccessory {
            errorMessage.includes('econnreset') ||
            errorMessage.includes('ehostunreach') ||
            errorMessage.includes('timeout');
+  }
+
+  private shouldActivateAwayMode(): boolean {
+    const currentHeatingCoolingState = this.thermostatService
+      .getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState).value;
+    const currentTargetTemp = this.thermostatService
+      .getCharacteristic(this.platform.Characteristic.TargetTemperature).value as number;
+
+    const isHeatingMode = currentHeatingCoolingState === this.platform.Characteristic.TargetHeatingCoolingState.HEAT;
+    return isHeatingMode && currentTargetTemp === 17;
   }
 
   refreshStatus() {
@@ -192,14 +197,20 @@ export class WFRACAccessory {
     this.dehumidifierService.updateCharacteristic(
       this.platform.Characteristic.TargetHumidifierDehumidifierState, targetHumidifierDehumidifierState,
     );
-
-    // Update away mode status
-    this.awayModeService.updateCharacteristic(this.platform.Characteristic.On, this.device.status.isVacantProperty === 1);
   }
 
   setTargetHeatingCoolingState(value: CharacteristicValue) {
     if (this.refreshTimeout) {
       clearTimeout(this.refreshTimeout);
+    }
+
+    // Check if we need to deactivate away mode when switching away from heating mode
+    const wasAwayModeActive = this.device.status.isVacantProperty === 1;
+    const isLeavingHeatingMode = value !== this.platform.Characteristic.TargetHeatingCoolingState.HEAT;
+
+    if (wasAwayModeActive && isLeavingHeatingMode) {
+      this.platform.log.info(`Deactivating away mode for ${this.deviceName} (leaving heating mode)`);
+      this.device.setAwayMode(false);
     }
 
     switch (value) {
@@ -213,6 +224,11 @@ export class WFRACAccessory {
         if (!this.device.status.operation) {
           this.platform.log.info(`Turning ${this.deviceName} on`);
           this.device.setOperation(true);
+        }
+        // Check if we should activate away mode (17°C in heating mode)
+        if (this.shouldActivateAwayMode()) {
+          this.platform.log.info(`Activating away mode for ${this.deviceName} (17°C heating)`);
+          this.device.setAwayMode(true);
         }
         break;
       case this.platform.Characteristic.TargetHeatingCoolingState.COOL:
@@ -243,8 +259,23 @@ export class WFRACAccessory {
       clearTimeout(this.refreshTimeout);
     }
 
-    this.platform.log.info(`Setting ${this.deviceName} temperature to`, value);
-    this.device.setPresetTemp(value as number);
+    const temperature = value as number;
+    this.platform.log.info(`Setting ${this.deviceName} temperature to ${temperature}°C`);
+
+    // Set the temperature first
+    this.device.setPresetTemp(temperature);
+
+    // Check if we should activate/deactivate away mode based on the new temperature
+    if (this.shouldActivateAwayMode()) {
+      this.platform.log.info(`Activating away mode for ${this.deviceName} (17°C heating)`);
+      this.device.setAwayMode(true);
+    } else {
+      // Deactivate away mode for any other temperature/mode combination
+      if (this.device.status.isVacantProperty === 1) {
+        this.platform.log.info(`Deactivating away mode for ${this.deviceName}`);
+        this.device.setAwayMode(false);
+      }
+    }
 
     this.refreshTimeout = setTimeout(() => this.refreshStatus(), WFRACAccessory.REFRESH_INTERVAL);
   }
@@ -337,18 +368,6 @@ export class WFRACAccessory {
         }
         break;
     }
-
-    this.refreshTimeout = setTimeout(() => this.refreshStatus(), WFRACAccessory.REFRESH_INTERVAL);
-  }
-
-  setAwayMode(value: CharacteristicValue) {
-    if (this.refreshTimeout) {
-      clearTimeout(this.refreshTimeout);
-    }
-
-    const isAwayMode = value as boolean;
-    this.platform.log.info(`Setting ${this.deviceName} away mode to ${isAwayMode ? 'ON' : 'OFF'}`);
-    this.device.setAwayMode(isAwayMode);
 
     this.refreshTimeout = setTimeout(() => this.refreshStatus(), WFRACAccessory.REFRESH_INTERVAL);
   }
