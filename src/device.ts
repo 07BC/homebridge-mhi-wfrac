@@ -468,15 +468,25 @@ export class DeviceClient {
   private readonly deviceId: string;
 
   private readonly log: Logging;
+  private readonly ignoreConnectionErrors: boolean;
 
   public status = new DeviceStatus();
 
-  constructor(ipAddress: string, port: number, operatorId: string, deviceId: string, log: Logging) {
+  constructor(ipAddress: string, port: number, operatorId: string, deviceId: string, log: Logging, ignoreConnectionErrors: boolean = true) {
     this.ipAddress = ipAddress;
     this.port = port;
     this.operatorId = operatorId;
     this.deviceId = deviceId;
     this.log = log;
+    this.ignoreConnectionErrors = ignoreConnectionErrors;
+  }
+
+  private isConnectionError(error: Error): boolean {
+    const errorMessage = error.message.toLowerCase();
+    return errorMessage.includes('econnrefused') ||
+           errorMessage.includes('econnreset') ||
+           errorMessage.includes('ehostunreach') ||
+           errorMessage.includes('timeout');
   }
 
   async getDeviceStatus(): Promise<DeviceStatus> {

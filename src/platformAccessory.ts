@@ -29,7 +29,7 @@ export class WFRACAccessory {
     // this.platform.api.hap.uuid.generate('HomebridgeMHIWFRAC').toString().toUpperCase()";
     // TODO: we should create a new operatorId for the platform and register it to the device.
 
-    this.device = new DeviceClient(this.ipAddress, this.port, this.operatorId, this.deviceName, this.platform.log);
+    this.device = new DeviceClient(this.ipAddress, this.port, this.operatorId, this.deviceName, this.platform.log, this.platform.config.ignoreConnectionErrors);
 
     // set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
@@ -81,6 +81,14 @@ export class WFRACAccessory {
 
   }
 
+  private isConnectionError(error: Error): boolean {
+    const errorMessage = error.message.toLowerCase();
+    return errorMessage.includes('econnrefused') ||
+           errorMessage.includes('econnreset') ||
+           errorMessage.includes('ehostunreach') ||
+           errorMessage.includes('timeout');
+  }
+
   refreshStatus() {
     if (this.refreshTimeout) {
       clearTimeout(this.refreshTimeout);
@@ -88,7 +96,9 @@ export class WFRACAccessory {
     this.device.getDeviceStatus().then( () => {
       this.updateStatus();
     }).catch((error) => {
-      this.platform.log.error(`Error getting status for ${this.deviceName}: ${error}`);
+      if (!this.platform.config.ignoreConnectionErrors || !this.isConnectionError(error)) {
+        this.platform.log.error(`Error getting status for ${this.deviceName}: ${error}`);
+      }
     });
     this.refreshTimeout = setTimeout(() => this.refreshStatus(), WFRACAccessory.REFRESH_INTERVAL);
   }

@@ -24,7 +24,7 @@ This plugin exposes three services to HomeKit as one device: a thermostat servic
      {
          "platforms": [
             {
-                "platform": "MHI-WFrac",
+                "platform": "HomebridgeMHIWFRACPlatform",
                 "operatorId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
                 "devices": [
                    {
