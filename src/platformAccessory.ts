@@ -30,7 +30,14 @@ export class WFRACAccessory {
     // this.platform.api.hap.uuid.generate('HomebridgeMHIWFRAC').toString().toUpperCase()";
     // TODO: we should create a new operatorId for the platform and register it to the device.
 
-    this.device = new DeviceClient(this.ipAddress, this.port, this.operatorId, this.deviceName, this.platform.log, this.platform.config.ignoreConnectionErrors);
+    this.device = new DeviceClient(
+      this.ipAddress,
+      this.port,
+      this.operatorId,
+      this.deviceName,
+      this.platform.log,
+      this.platform.config.ignoreConnectionErrors,
+    );
 
     // set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
