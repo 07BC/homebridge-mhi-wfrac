@@ -11,6 +11,7 @@ This plugin exposes three services to HomeKit as one device: a thermostat servic
 
 1. **Smart M-Air App Configuration**: First, configure the devices with the Smart M-Air app according to the normal instructions provided by Mitsubishi.
 2. **Homebridge Setup**: Ensure you have Homebridge installed and set up on your system.
+3. **Static IP Configuration**: Configure your router to assign static IP addresses to your air conditioners via DHCP reservation. This prevents connection issues when the device IP changes.
 
 ## Installation
 
@@ -63,11 +64,24 @@ In the future, it would be possible to register the homebridge plugin as a separ
 - **Humidity**: We do not have humidity sensors in the air conditioner, so the humidity is not reported, resulting in a Homekit value of 0%.
 - **Outdoor temperature**: We do not (yet) report the outdoor temperature, though we could provide a separate accessory for it.
 
+## Connection Reliability
+
+The plugin includes automatic retry logic with exponential backoff to handle transient network issues:
+- **Automatic retries**: Up to 3 attempts for failed requests (1s → 2s → 4s delays)
+- **Supported errors**: Connection timeouts, socket hang ups, connection refused, and other network errors
+- **Status polling**: Automatically skips during active commands to prevent conflicts
+
+If you experience persistent connection errors (ECONNREFUSED, socket hang up, etc.), check the following:
+- Verify the air conditioner IP address is correct and reachable
+- Ensure you configured static IP addresses via DHCP reservation in your router
+- Check that port 51443 is not blocked by a firewall
+- Verify the device is powered on and connected to WiFi
+- Try restarting the air conditioner's WiFi module
+
 ## Limitations
 
 - **Fan Direction Control**: The horizontal and vertical direction of the fan cannot be managed via Homebridge, as HomeKit does not provide a suitable service for this. There is RotationDirection and SwingMode, but they seem too limited for this purpose (though perhaps the 3D auto swing could be implemented as a SwingMode). You should configure these settings in the Smart M-Air app or via the remote control, Homebridge will not override these settings.
 - **Outdoor Temperature**: The outdoor temperature is not implemented yet (we should provide a separate accessory for it).
-- **Error Handling**: The plugin does not handle errors from the air conditioner yet, so if the air conditioner is not reachable, the plugin will not be able to recover from it.
 - **Error codes**: The plugin does not provide device error codes or other status information yet (firmware version, electricity usage, etc.), though it could be implemented in the future because the air conditioner does provide this information.
 
 

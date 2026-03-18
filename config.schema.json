@@ -9,7 +9,7 @@
         "title": "Name",
         "type": "string",
         "required": true,
-        "default": "Homebrdige MHI WF-RAC"
+        "default": "Homebridge MHI WF-RAC"
       },
       "operatorId": {
         "title": "Operator ID (uuid)",

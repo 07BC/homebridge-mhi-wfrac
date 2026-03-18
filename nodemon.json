@@ -4,7 +4,7 @@
   ],
   "ext": "ts",
   "ignore": [],
-  "exec": "tsc && homebridge -I -D",
+  "exec": "npm run dev:setup && tsc && HOMEBRIDGE_CONFIG_PATH=./dev-homebridge HOMEBRIDGE_STORAGE_PATH=./dev-homebridge homebridge -D",
   "signal": "SIGTERM",
   "env": {
     "NODE_OPTIONS": "--trace-warnings"

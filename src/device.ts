@@ -471,6 +471,8 @@ export class DeviceClient {
   private readonly ignoreConnectionErrors: boolean;
 
   public status = new DeviceStatus();
+  private commandQueue: Promise<void> = Promise.resolve();
+  public isCommandInProgress = false;
 
   constructor(ipAddress: string, port: number, operatorId: string, deviceId: string, log: Logging, ignoreConnectionErrors: boolean = true) {
     this.ipAddress = ipAddress;
@@ -486,7 +488,11 @@ export class DeviceClient {
     return errorMessage.includes('econnrefused') ||
            errorMessage.includes('econnreset') ||
            errorMessage.includes('ehostunreach') ||
-           errorMessage.includes('timeout');
+           errorMessage.includes('timeout') ||
+           errorMessage.includes('socket hang up') ||
+           errorMessage.includes('econnaborted') ||
+           errorMessage.includes('epipe') ||
+           errorMessage.includes('etimedout');
   }
 
   async getDeviceStatus(): Promise<DeviceStatus> {
@@ -495,47 +501,62 @@ export class DeviceClient {
     return this.status;
   }
 
-  setAirflow(airFlow: number): DeviceStatus {
+  async setAirflow(airFlow: number): Promise<DeviceStatus> {
     this.status.airFlow = airFlow;
-    this.setDeviceStatus(this.status);
-    return this.status;
+    return await this.setDeviceStatus(this.status);
   }
 
-  setOperationMode(operationMode: number): DeviceStatus {
+  async setOperationMode(operationMode: number): Promise<DeviceStatus> {
     this.status.operationMode = operationMode;
-    this.setDeviceStatus(this.status);
-    return this.status;
+    return await this.setDeviceStatus(this.status);
   }
 
-  setOperation(operation: boolean): DeviceStatus {
+  async setOperation(operation: boolean): Promise<DeviceStatus> {
     this.status.operation = operation;
-    this.setDeviceStatus(this.status);
-    return this.status;
+    return await this.setDeviceStatus(this.status);
   }
 
-  setPresetTemp(presetTemp: number): DeviceStatus {
+  async setPresetTemp(presetTemp: number): Promise<DeviceStatus> {
     this.status.presetTemp = presetTemp;
-    this.setDeviceStatus(this.status);
-    return this.status;
+    return await this.setDeviceStatus(this.status);
   }
 
-  setAwayMode(awayMode: boolean): DeviceStatus {
+  async setAwayMode(awayMode: boolean): Promise<DeviceStatus> {
     this.status.isVacantProperty = awayMode ? 1 : 0;
-    this.setDeviceStatus(this.status);
-    return this.status;
+    return await this.setDeviceStatus(this.status);
   }
 
   async setDeviceStatus(status: DeviceStatus): Promise<DeviceStatus> {
-    const contents = {
-      airconId: this.deviceId,
-      airconStat: status.toBase64(),
-    };
-    await this.call('setAirconStat', contents)
-      .then(data => this.status = DeviceStatus.fromBase64(data.contents.airconStat));
-    return this.status;
+    // Queue commands to prevent race conditions
+    this.isCommandInProgress = true;
+
+    try {
+      this.commandQueue = this.commandQueue.then(async () => {
+        const contents = {
+          airconId: this.deviceId,
+          airconStat: status.toBase64(),
+        };
+        const data = await this.call('setAirconStat', contents);
+        this.status = DeviceStatus.fromBase64(data.contents.airconStat);
+      });
+
+      await this.commandQueue;
+      return this.status;
+    } catch (error) {
+      if (!this.ignoreConnectionErrors || !this.isConnectionError(error as Error)) {
+        this.log.error(`Error setting device status for ${this.deviceId} (${this.ipAddress}): ${error}`);
+      }
+      throw error;
+    } finally {
+      this.isCommandInProgress = false;
+    }
   }
 
-  async call(command: string, contents: DeviceStatusRequest|null = null): Promise<DeviceStatusResponse> {
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async call(command: string, contents: DeviceStatusRequest|null = null, retries = 3): Promise<DeviceStatusResponse> {
     let data;
     if (contents) {
       data = {
@@ -557,14 +578,41 @@ export class DeviceClient {
     }
     const body = JSON.stringify(data);
 
-    // We must use axios, because fetch lowercases the headers, which the device does not like
-    return await axios.post(`http://${this.ipAddress}:${this.port}/beaver/command`, body)
-      .then(response => {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        // We must use axios, because fetch lowercases the headers, which the device does not like
+        const response = await axios.post(`http://${this.ipAddress}:${this.port}/beaver/command`, body, {
+          timeout: 10000, // 10 second timeout
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
         if (response.status !== 200) {
           throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
-        } else {
-          return response.data;
         }
-      });
+        return response.data;
+      } catch (error) {
+        lastError = error as Error;
+
+        // If this is a connection error and we have retries left, wait and retry
+        if (this.isConnectionError(lastError) && attempt < retries) {
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5 seconds
+          const attemptInfo = `attempt ${attempt + 1}/${retries + 1}`;
+          this.log.warn(
+            `Connection error on ${attemptInfo} for ${this.deviceId}: ${lastError.message}. Retrying in ${backoffMs}ms...`,
+          );
+          await this.sleep(backoffMs);
+          continue;
+        }
+
+        // If it's not a connection error or we're out of retries, throw
+        throw lastError;
+      }
+    }
+
+    // Should never reach here, but TypeScript needs it
+    throw lastError || new Error('Unknown error during API call');
   }
 }

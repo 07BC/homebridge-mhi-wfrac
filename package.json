@@ -1,7 +1,7 @@
 {
   "displayName": "Homebridge MHI WF-RAC",
   "name": "homebridge-mhi-wfrac",
-  "version": "2.1.3",
+  "version": "2.2.0",
   "description": "A homebridge plugin for Mitshubishi WF-RAC aircos (using the Smart M-Air app)",
   "license": "Apache-2.0",
   "type": "module",
@@ -23,15 +23,22 @@
     "url": "https://github.com/JobDoesburg/homebridge-mhi-wfrac/issues"
   },
   "engines": {
-    "node": "^18.17.0 || ^20.9.0 || ^22.0.0",
+    "node": "^18.17.0 || ^20.9.0 || ^22.0.0 || ^24.0.0",
     "homebridge": "^1.7.0 || ^1.8.0 || ^2.0.0"
   },
   "main": "dist/index.js",
   "scripts": {
-    "lint": "eslint src/**/*.ts --max-warnings=0",
+    "lint": "eslint src --max-warnings=0",
+    "test": "npm run lint && npm run build",
     "watch": "npm run build && npm link && nodemon",
     "build": "rimraf ./dist && tsc",
-    "prepublishOnly": "npm run lint && npm run build"
+    "prepublishOnly": "npm run lint && npm run build",
+    "dev:setup": "npm run dev:setup-dirs && npm run dev:setup-config && npm run dev:setup-ui",
+    "dev:setup-dirs": "mkdir -p dev-homebridge/persist dev-homebridge/accessories",
+    "dev:setup-config": "test -f dev-homebridge/config.json || cp dev-config-template.json dev-homebridge/config.json",
+    "dev:setup-ui": "cd dev-homebridge && (test -f package.json || npm init -y) && npm install homebridge-config-ui-x",
+    "dev": "npm run dev:setup && npm run build && npm link && HOMEBRIDGE_CONFIG_PATH=./dev-homebridge HOMEBRIDGE_STORAGE_PATH=./dev-homebridge npx homebridge -D",
+    "dev:watch": "npm run dev:setup && npm run build && npm link && nodemon"
   },
   "keywords": [
     "homebridge-plugin",
@@ -42,15 +49,17 @@
     "air-conditioning"
   ],
   "devDependencies": {
-    "@types/node": "^20.14.10",
-    "@typescript-eslint/eslint-plugin": "^7.16.0",
-    "@typescript-eslint/parser": "^7.16.0",
-    "eslint": "^8.57.0",
-    "homebridge": "^1.8.3",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.1",
+    "@typescript-eslint/parser": "^8.57.1",
+    "eslint": "^10.0.3",
+    "homebridge": "^1.11.0",
     "nodemon": "^3.1.4",
     "rimraf": "^6.0.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.57.1"
   },
   "dependencies": {
     "axios": "^1.7.2",

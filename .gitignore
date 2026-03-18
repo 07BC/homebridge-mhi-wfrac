@@ -119,6 +119,17 @@ dist
 .yarn/build-state.yml
 .pnp.*
 
-# Webstorm
+# IDE
 .idea
+.vscode
+
+# macOS
+.DS_Store
+
+# AI tools
 .aider*
+.claude
+
+# Development Homebridge
+dev-homebridge/
+.env.dev
