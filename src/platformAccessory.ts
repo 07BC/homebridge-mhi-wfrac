@@ -16,6 +16,8 @@ export class WFRACAccessory {
   private thermostatService: Service;
   private fanService: Service;
   private dehumidifierService: Service;
+  private outdoorTempService: Service;
+  private awayModeService: Service;
   private refreshTimeout: NodeJS.Timeout | null = null;
 
   constructor(
@@ -52,6 +54,12 @@ export class WFRACAccessory {
     this.dehumidifierService = this.accessory.getService(this.platform.Service.HumidifierDehumidifier)
       || this.accessory.addService(this.platform.Service.HumidifierDehumidifier);
 
+    this.outdoorTempService = this.accessory.getService(this.platform.Service.TemperatureSensor)
+      || this.accessory.addService(this.platform.Service.TemperatureSensor, 'Outdoor Temperature');
+
+    this.awayModeService = this.accessory.getService(this.platform.Service.Switch)
+      || this.accessory.addService(this.platform.Service.Switch, 'Away Mode');
+
     this.thermostatService.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits)
       .onGet(() => this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS);
     this.thermostatService.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
@@ -60,6 +68,9 @@ export class WFRACAccessory {
       .setProps({minValue: 18, maxValue: 30, minStep: 0.5});
 
     this.fanService.getCharacteristic(this.platform.Characteristic.RotationSpeed).setProps({minValue: 0, maxValue: 100, minStep: 25});
+
+    this.outdoorTempService.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
+      .setProps({minValue: DeviceStatus.outdoorTempList.at(0), maxValue: DeviceStatus.outdoorTempList.at(-1), minStep: 0.1});
 
     this.dehumidifierService.getCharacteristic(this.platform.Characteristic.TargetHumidifierDehumidifierState)
       .setProps({validValues: [this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER]});
@@ -81,6 +92,10 @@ export class WFRACAccessory {
       .onSet(this.setRotationSpeed.bind(this));
     this.dehumidifierService.getCharacteristic(this.platform.Characteristic.Active)
       .onSet(this.setHumidifierActive.bind(this));
+    this.fanService.getCharacteristic(this.platform.Characteristic.SwingMode)
+      .onSet(this.setSwingMode.bind(this));
+    this.awayModeService.getCharacteristic(this.platform.Characteristic.On)
+      .onSet(this.setAwayMode.bind(this));
 
     // We do not implement the target humidifier state, since we only accept DEHUMIDIFIER as a valid value.
 
@@ -196,6 +211,19 @@ export class WFRACAccessory {
     this.dehumidifierService.updateCharacteristic(
       this.platform.Characteristic.TargetHumidifierDehumidifierState, targetHumidifierDehumidifierState,
     );
+
+    if (this.device.status.outdoorTemp !== null) {
+      this.outdoorTempService.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, this.device.status.outdoorTemp);
+    }
+
+    if (this.device.status.windDirectionUD !== -1 && this.device.status.windDirectionLR !== -1) {
+      const swingMode = (this.device.status.windDirectionUD === 0 && this.device.status.windDirectionLR === 0)
+        ? this.platform.Characteristic.SwingMode.SWING_ENABLED
+        : this.platform.Characteristic.SwingMode.SWING_DISABLED;
+      this.fanService.updateCharacteristic(this.platform.Characteristic.SwingMode, swingMode);
+    }
+
+    this.awayModeService.updateCharacteristic(this.platform.Characteristic.On, this.device.status.isVacantProperty === 1);
   }
 
   async setTargetHeatingCoolingState(value: CharacteristicValue) {
@@ -375,6 +403,46 @@ export class WFRACAccessory {
       this.updateStatus();
     } catch (error) {
       this.platform.log.error(`Error setting dehumidifier active for ${this.deviceName}: ${error}`);
+      throw error;
+    }
+
+    this.refreshTimeout = setTimeout(() => this.refreshStatus(), WFRACAccessory.REFRESH_INTERVAL);
+  }
+
+  async setSwingMode(value: CharacteristicValue) {
+    if (this.refreshTimeout) {
+      clearTimeout(this.refreshTimeout);
+    }
+
+    try {
+      if (value === this.platform.Characteristic.SwingMode.SWING_ENABLED) {
+        this.platform.log.info(`Setting ${this.deviceName} swing mode to auto`);
+        await this.device.setWindDirection(0, 0);
+      } else {
+        this.platform.log.info(`Setting ${this.deviceName} swing mode to fixed`);
+        await this.device.setWindDirection(3, 3);
+      }
+      this.updateStatus();
+    } catch (error) {
+      this.platform.log.error(`Error setting swing mode for ${this.deviceName}: ${error}`);
+      throw error;
+    }
+
+    this.refreshTimeout = setTimeout(() => this.refreshStatus(), WFRACAccessory.REFRESH_INTERVAL);
+  }
+
+  async setAwayMode(value: CharacteristicValue) {
+    if (this.refreshTimeout) {
+      clearTimeout(this.refreshTimeout);
+    }
+
+    try {
+      const away = value as boolean;
+      this.platform.log.info(`Setting ${this.deviceName} away mode to ${away}`);
+      await this.device.setAwayMode(away);
+      this.updateStatus();
+    } catch (error) {
+      this.platform.log.error(`Error setting away mode for ${this.deviceName}: ${error}`);
       throw error;
     }
 

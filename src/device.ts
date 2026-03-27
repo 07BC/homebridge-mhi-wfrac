@@ -532,6 +532,12 @@ export class DeviceClient {
     return await this.setDeviceStatus(this.status);
   }
 
+  async setWindDirection(ud: number, lr: number): Promise<DeviceStatus> {
+    this.status.windDirectionUD = ud;
+    this.status.windDirectionLR = lr;
+    return await this.setDeviceStatus(this.status);
+  }
+
   async setDeviceStatus(status: DeviceStatus): Promise<DeviceStatus> {
     // Queue commands to prevent race conditions
     this.isCommandInProgress = true;
