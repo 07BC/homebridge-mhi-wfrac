@@ -1,4 +1,5 @@
 import {Buffer} from 'buffer';
+import https from 'https';
 import {Logging} from 'homebridge';
 import axios from 'axios';
 
@@ -474,6 +475,11 @@ export class DeviceClient {
   private commandQueue: Promise<void> = Promise.resolve();
   public isCommandInProgress = false;
 
+  private useHttps: boolean | null = null; // null = not yet detected
+  private readonly httpsAgent = new https.Agent({
+    rejectUnauthorized: false, // WF-RAC devices use self-signed certificates
+  });
+
   constructor(ipAddress: string, port: number, operatorId: string, deviceId: string, log: Logging, ignoreConnectionErrors: boolean = true) {
     this.ipAddress = ipAddress;
     this.port = port;
@@ -556,6 +562,50 @@ export class DeviceClient {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  private getBaseUrl(protocol: 'http' | 'https', command?: string): string {
+    // WF-RAC-HTTPS firmware requires the command in the URL path
+    // WF-RAC (HTTP) firmware uses just /beaver/command
+    const basePath = `${protocol}://${this.ipAddress}:${this.port}/beaver/command`;
+    return (protocol === 'https' && command) ? `${basePath}/${command}` : basePath;
+  }
+
+  private getAxiosConfig(useHttps: boolean) {
+    return {
+      timeout: 10000, // 10 second timeout
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      ...(useHttps ? { httpsAgent: this.httpsAgent } : {}),
+    };
+  }
+
+  private async detectProtocol(body: string, command: string): Promise<DeviceStatusResponse> {
+    // Try HTTPS first (newer WF-RAC-HTTPS firmware), then fall back to HTTP
+    try {
+      const response = await axios.post(this.getBaseUrl('https', command), body, this.getAxiosConfig(true));
+      if (response.status === 200) {
+        this.useHttps = true;
+        this.log.info(`Device ${this.deviceId} (${this.ipAddress}): using HTTPS`);
+        return response.data;
+      }
+    } catch (httpsError) {
+      this.log.debug(`HTTPS failed for ${this.deviceId} (${this.ipAddress}), trying HTTP: ${(httpsError as Error).message}`);
+    }
+
+    try {
+      const response = await axios.post(this.getBaseUrl('http'), body, this.getAxiosConfig(false));
+      if (response.status === 200) {
+        this.useHttps = false;
+        this.log.info(`Device ${this.deviceId} (${this.ipAddress}): using HTTP`);
+        return response.data;
+      }
+    } catch (httpError) {
+      this.log.debug(`HTTP also failed for ${this.deviceId} (${this.ipAddress}): ${(httpError as Error).message}`);
+    }
+
+    throw new Error(`Unable to connect to device ${this.deviceId} (${this.ipAddress}) via HTTPS or HTTP`);
+  }
+
   async call(command: string, contents: DeviceStatusRequest|null = null, retries = 3): Promise<DeviceStatusResponse> {
     let data;
     if (contents) {
@@ -578,16 +628,18 @@ export class DeviceClient {
     }
     const body = JSON.stringify(data);
 
+    // Auto-detect protocol on first call
+    if (this.useHttps === null) {
+      return await this.detectProtocol(body, command);
+    }
+
+    const url = this.getBaseUrl(this.useHttps ? 'https' : 'http', command);
+
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         // We must use axios, because fetch lowercases the headers, which the device does not like
-        const response = await axios.post(`http://${this.ipAddress}:${this.port}/beaver/command`, body, {
-          timeout: 10000, // 10 second timeout
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
+        const response = await axios.post(url, body, this.getAxiosConfig(this.useHttps));
 
         if (response.status !== 200) {
           throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
